@@ -5,21 +5,27 @@ import CheckpointView from './CheckpointView';
 interface JourneyViewProps {
   journey: Journey;
   onJourneyComplete: () => void;
+  onCheckpointComplete?: (correct: boolean, usedHint: boolean, timeSpent: number) => void;
 }
 
-export default function JourneyView({ journey, onJourneyComplete }: JourneyViewProps) {
+export default function JourneyView({ journey, onJourneyComplete, onCheckpointComplete }: JourneyViewProps) {
   const [currentCheckpointIndex, setCurrentCheckpointIndex] = useState(0);
   const [completedCheckpoints, setCompletedCheckpoints] = useState<Set<string>>(new Set());
 
   const currentCheckpoint = journey.checkpoints[currentCheckpointIndex];
-  const progress = journey.checkpoints.length > 0 
-    ? (completedCheckpoints.size / journey.checkpoints.length) * 100 
+  const progress = journey.checkpoints.length > 0
+    ? (completedCheckpoints.size / journey.checkpoints.length) * 100
     : 0;
 
-  const handleCheckpointComplete = (checkpointId: string) => {
+  const handleCheckpointComplete = (checkpointId: string, correct?: boolean, usedHint?: boolean, timeSpent?: number) => {
     const newCompleted = new Set(completedCheckpoints);
     newCompleted.add(checkpointId);
     setCompletedCheckpoints(newCompleted);
+
+    // Call gamification callback
+    if (onCheckpointComplete) {
+      onCheckpointComplete(correct ?? true, usedHint ?? false, timeSpent ?? 0);
+    }
 
     // Move to next checkpoint after a delay
     setTimeout(() => {
