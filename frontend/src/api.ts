@@ -1,6 +1,18 @@
 import type { Journey, GenerateRequest } from './types';
 
-const API_BASE = 'http://localhost:8000';
+// Determine API base URL based on environment
+const getApiBase = (): string => {
+  // In production (GitHub Pages), use relative path or configured backend URL
+  if (window.location.hostname.includes('github.io')) {
+    // For demo purposes, we'll use a mock backend or you can set your deployed backend URL
+    // return 'https://your-backend-url.herokuapp.com';
+    return 'http://localhost:8000'; // Fallback - will show error in production
+  }
+  // In development, use localhost
+  return 'http://localhost:8000';
+};
+
+const API_BASE = getApiBase();
 
 export async function generateJourney(topic: string): Promise<Journey> {
   const request: GenerateRequest = { topic };
@@ -14,7 +26,7 @@ export async function generateJourney(topic: string): Promise<Journey> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to generate journey: ${response.statusText}`);
+    throw new Error(`Failed to generate journey: ${response.statusText}. Make sure the backend server is running at ${API_BASE}`);
   }
 
   return response.json();
@@ -28,3 +40,6 @@ export async function checkBackendHealth(): Promise<boolean> {
     return false;
   }
 }
+
+// Check if we're in production (GitHub Pages)
+export const isProduction = window.location.hostname.includes('github.io');

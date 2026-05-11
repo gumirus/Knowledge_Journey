@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Checkpoint, Activity } from '../types';
+import type { Checkpoint } from '../types';
 
 interface CheckpointViewProps {
   checkpoint: Checkpoint;

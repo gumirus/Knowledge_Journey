@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Journey, Checkpoint } from '../types';
+import type { Journey } from '../types';
 import CheckpointView from './CheckpointView';
 
 interface JourneyViewProps {
