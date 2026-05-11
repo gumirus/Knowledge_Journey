@@ -6,20 +6,37 @@ from dotenv import load_dotenv
 import json
 import os
 import random
+import httpx
+from enum import Enum
+from typing import Optional, Dict, Any
 
 load_dotenv()
 
 app = FastAPI()
 
-# Try to initialize Anthropic client, fallback to demo mode if no API key
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-DEMO_MODE = ANTHROPIC_API_KEY is None or ANTHROPIC_API_KEY == ""
+# Configuration
+class AIProvider(str, Enum):
+    DEMO = "demo"
+    ANTHROPIC = "anthropic"
+    SOURCECRAFT = "sourcecraft"
 
-if not DEMO_MODE:
-    client = Anthropic()
+# Determine which provider to use
+PROVIDER_CONFIG = os.getenv("AI_PROVIDER", "demo").lower()
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+SOURCECRAFT_API_KEY = os.getenv("SOURCECRAFT_API_KEY")
+SOURCECRAFT_API_URL = os.getenv("SOURCECRAFT_API_URL", "https://api.sourcecraft.dev/v1/chat/completions")
+
+# Select provider based on configuration
+if PROVIDER_CONFIG == "anthropic" and ANTHROPIC_API_KEY:
+    ACTIVE_PROVIDER = AIProvider.ANTHROPIC
+    anthropic_client = Anthropic()
+    print("✅ Using Anthropic API provider")
+elif PROVIDER_CONFIG == "sourcecraft" and SOURCECRAFT_API_KEY:
+    ACTIVE_PROVIDER = AIProvider.SOURCECRAFT
+    print("✅ Using SourceCraft API provider")
 else:
-    client = None
-    print("⚠️  Running in DEMO MODE - using mock data")
+    ACTIVE_PROVIDER = AIProvider.DEMO
+    print("⚠️  Using DEMO provider - generating mock data")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,34 +47,115 @@ app.add_middleware(
 
 class GenerateRequest(BaseModel):
     topic: str
+    provider: Optional[AIProvider] = None  # Optional override
 
 @app.get("/")
 async def root():
     return {
         "status": "online",
         "service": "Knowledge Journey API",
-        "demo_mode": DEMO_MODE,
+        "active_provider": ACTIVE_PROVIDER.value,
         "endpoints": {
             "GET /": "API health check",
             "POST /generate": "Generate learning journey"
+        },
+        "environment": {
+            "ai_provider": PROVIDER_CONFIG,
+            "demo_mode": ACTIVE_PROVIDER == AIProvider.DEMO
         }
     }
 
 @app.post("/generate")
 async def generate_journey(req: GenerateRequest):
-    # If in demo mode, return mock data
-    if DEMO_MODE:
-        return generate_mock_journey(req.topic)
+    # Use requested provider or default
+    provider = req.provider if req.provider else ACTIVE_PROVIDER
     
-    # Otherwise use real Anthropic API
-    prompt = f"""You are an expert educational content creator.
+    if provider == AIProvider.DEMO:
+        return generate_mock_journey(req.topic)
+    elif provider == AIProvider.ANTHROPIC:
+        return await generate_with_anthropic(req.topic)
+    elif provider == AIProvider.SOURCECRAFT:
+        return await generate_with_sourcecraft(req.topic)
+    else:
+        return {"error": f"Unsupported provider: {provider}"}
 
-Analyze this topic and create a learning journey: "{req.topic}"
+async def generate_with_anthropic(topic: str):
+    """Generate journey using Anthropic Claude"""
+    if not ANTHROPIC_API_KEY:
+        return {"error": "Anthropic API key not configured"}
+    
+    prompt = create_prompt(topic)
+    
+    try:
+        message = anthropic_client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        text = message.content[0].text
+        journey = json.loads(text)
+        return journey
+    except Exception as e:
+        print(f"Anthropic API error: {e}")
+        return generate_mock_journey(topic)  # Fallback to mock data
+
+async def generate_with_sourcecraft(topic: str):
+    """Generate journey using SourceCraft Code Assistant API"""
+    if not SOURCECRAFT_API_KEY:
+        return {"error": "SourceCraft API key not configured"}
+    
+    prompt = create_prompt(topic)
+    
+    # SourceCraft API request (assuming similar to OpenAI format)
+    headers = {
+        "Authorization": f"Bearer {SOURCECRAFT_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "sourcecraft-code-assistant",  # Adjust model name as needed
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 2000,
+        "temperature": 0.7
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                SOURCECRAFT_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=30.0
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                # Extract the response text - adjust based on actual API response format
+                text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if text:
+                    journey = json.loads(text)
+                    return journey
+                else:
+                    raise ValueError("Empty response from SourceCraft API")
+            else:
+                raise Exception(f"SourceCraft API error: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"SourceCraft API error: {e}")
+        return generate_mock_journey(topic)  # Fallback to mock data
+
+def create_prompt(topic: str) -> str:
+    """Create standardized prompt for all AI providers"""
+    return f"""You are an expert educational content creator.
+
+Analyze this topic and create a learning journey: "{topic}"
 
 Return ONLY valid JSON, no other text:
 
 {{
-  "topic": "{req.topic}",
+  "topic": "{topic}",
   "checkpoints": [
     {{
       "id": "1",
@@ -86,21 +184,11 @@ Rules:
 - For FillTheBlank — prompt contains ___ where answer goes, correct is the word
 """
 
-    message = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    text = message.content[0].text
-    journey = json.loads(text)
-    return journey
-
 def generate_mock_journey(topic: str):
     """Generate mock journey for demo purposes"""
     concepts = [
         "Introduction",
-        "Core Principles",
+        "Core Principles", 
         "Advanced Concepts",
         "Real-world Applications",
         "Future Trends"
@@ -138,7 +226,7 @@ def create_mock_activity(activity_type: str, topic: str, concept: str):
             "prompt": f"Which of the following best describes {concept.lower()} in {topic}?",
             "options": [
                 "A fundamental principle",
-                "An advanced technique",
+                "An advanced technique", 
                 "A historical context",
                 "A practical application"
             ],
@@ -154,7 +242,7 @@ def create_mock_activity(activity_type: str, topic: str, concept: str):
         }
     elif activity_type == "FreeResponse":
         return {
-            "type": "FreeResponse",
+            "type": "FreeResponse", 
             "prompt": f"Explain {concept.lower()} in your own words.",
             "hint": "Focus on key ideas"
         }

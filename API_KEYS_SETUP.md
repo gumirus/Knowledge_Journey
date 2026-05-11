@@ -4,15 +4,70 @@ This guide explains how to set up API keys for production use of Knowledge Journ
 
 ## Overview
 
-By default, Knowledge Journey runs in **demo mode** with mock data, which doesn't require any API keys. For production use with real AI-generated content, you need to configure the following:
+Knowledge Journey supports multiple AI providers:
+- **Demo Mode** (default) - Uses mock data, no API keys required
+- **Anthropic Claude** - Uses Anthropic API for high-quality AI generation
+- **SourceCraft Code Assistant** - Uses SourceCraft's AI API
 
-1. **Anthropic API Key** - For AI-powered journey generation
-2. **Backend Deployment** - To serve the API in production
-3. **Frontend Configuration** - To point to your deployed backend
+## Quick Configuration
 
-## 1. Anthropic API Key Setup
+### Environment Variables
 
-### Getting an API Key
+Create a `.env` file in the `backend` directory:
+
+```bash
+# Choose one provider: demo, anthropic, or sourcecraft
+AI_PROVIDER=sourcecraft
+
+# Anthropic Configuration (if using anthropic provider)
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# SourceCraft Configuration (if using sourcecraft provider)
+SOURCECRAFT_API_KEY=your_sourcecraft_api_key_here
+SOURCECRAFT_API_URL=https://api.sourcecraft.dev/v1/chat/completions  # Default, adjust if needed
+```
+
+## 1. SourceCraft Code Assistant Setup
+
+### Getting a SourceCraft API Key
+
+1. **Sign up for SourceCraft Code Assistant** at the official SourceCraft platform
+2. **Navigate to API Keys** section in your account dashboard
+3. **Generate a new API key** with appropriate permissions
+4. **Copy the API key** for use in your backend
+
+### Configuring the Backend
+
+Set the following environment variables:
+
+```bash
+AI_PROVIDER=sourcecraft
+SOURCECRAFT_API_KEY=sk_your_sourcecraft_key_here
+# Optional: Customize API URL if different
+SOURCECRAFT_API_URL=https://api.sourcecraft.dev/v1/chat/completions
+```
+
+### SourceCraft API Response Format
+
+The backend expects SourceCraft API to return responses in OpenAI-compatible format:
+
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "content": "{\"topic\": \"...\", \"checkpoints\": [...]}"
+      }
+    }
+  ]
+}
+```
+
+If your SourceCraft API uses a different format, modify the `generate_with_sourcecraft()` function in `backend/main.py`.
+
+## 2. Anthropic Claude Setup
+
+### Getting an Anthropic API Key
 
 1. Go to [console.anthropic.com](https://console.anthropic.com)
 2. Sign up or log in to your Anthropic account
@@ -22,176 +77,165 @@ By default, Knowledge Journey runs in **demo mode** with mock data, which doesn'
 
 ### Configuring the Backend
 
-Create a `.env` file in the `backend` directory:
-
 ```bash
-cd backend
-echo "ANTHROPIC_API_KEY=your_actual_api_key_here" > .env
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
 ```
 
-**Security Note**: Never commit `.env` files to version control. The `.gitignore` already excludes `.env` files.
+## 3. Demo Mode (No API Keys)
 
-### Environment Variables for Production
+If you don't have API keys or want to test without costs:
 
-When deploying the backend to production services (Render, Railway, Heroku, etc.), set the following environment variables:
+```bash
+AI_PROVIDER=demo
+# No API keys required
+```
 
-- `ANTHROPIC_API_KEY`: Your Anthropic API key
-- `PORT`: Server port (usually set automatically by the hosting service)
-- `CORS_ORIGINS`: Comma-separated list of allowed frontend URLs (optional)
+## 4. Frontend Configuration
 
-## 2. Backend Deployment with API Keys
+The frontend automatically detects the active provider from the backend. Users can select their preferred provider in the UI:
 
-### Deploying to Render
+1. **Demo Mode**: Fast, uses mock data
+2. **Anthropic Claude**: High-quality AI generation
+3. **SourceCraft Assistant**: SourceCraft's specialized code assistant
 
-1. Create a new Web Service on Render
-2. Connect your GitHub repository
-3. Set the following:
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `python -m uvicorn main:app --host 0.0.0.0 --port $PORT`
-4. Add environment variable:
-   - Key: `ANTHROPIC_API_KEY`
-   - Value: Your API key
+### Provider Selection UI
 
-### Deploying to Railway
+The frontend includes a provider selection panel with:
+- Radio buttons for each provider
+- Descriptions of each provider's capabilities
+- Real-time backend status display
 
-1. Create a new project on Railway
-2. Connect your GitHub repository
-3. Railway will automatically detect the Python project
-4. Add environment variable in the "Variables" tab:
-   - `ANTHROPIC_API_KEY`: Your API key
+## 5. Deployment
 
-### Deploying to Vercel (Python)
+### Backend Deployment
 
-1. Install Vercel CLI: `npm i -g vercel`
-2. Create `vercel.json` in the backend directory:
-   ```json
-   {
-     "builds": [
-       {
-         "src": "main.py",
-         "use": "@vercel/python"
-       }
-     ],
-     "routes": [
-       {
-         "src": "/(.*)",
-         "dest": "main.py"
-       }
-     ]
-   }
+Deploy the backend to your preferred service (Render, Railway, Vercel, Heroku):
+
+**Required Environment Variables:**
+- `AI_PROVIDER`: `demo`, `anthropic`, or `sourcecraft`
+- Provider-specific API keys (if not using demo mode)
+- `PORT`: Server port (auto-set by most platforms)
+
+**Example Render Configuration:**
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `python -m uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Environment: `AI_PROVIDER=sourcecraft`, `SOURCECRAFT_API_KEY=your_key`
+
+### Frontend Deployment
+
+1. Build the frontend:
+   ```bash
+   cd frontend
+   npm run build
    ```
-3. Deploy: `vercel --prod`
-4. Set environment variable in Vercel dashboard
 
-## 3. Frontend Configuration for Production
+2. Deploy the `frontend/dist/` directory to:
+   - GitHub Pages (automated via GitHub Actions)
+   - Vercel
+   - Netlify
+   - Any static hosting service
 
-### Update API Base URL
-
-After deploying your backend, update the `getApiBase()` function in `frontend/src/api.ts`:
-
-```typescript
-const getApiBase = (): string => {
-  if (window.location.hostname.includes('github.io')) {
-    // Replace with your deployed backend URL
-    return 'https://your-backend-service.onrender.com';
-  }
-  return 'http://localhost:8000';
-};
-```
-
-### Building for Production
-
-```bash
-cd frontend
-npm run build
-```
-
-The built files will be in `frontend/dist/` and can be deployed to any static hosting service.
-
-## 4. Testing the Setup
+## 6. Testing
 
 ### Local Testing
 
-1. Start the backend with API key:
+1. Start backend with your chosen provider:
    ```bash
    cd backend
    source venv/bin/activate
    python -m uvicorn main:app --reload --port 8000
    ```
-   You should see: `Running in PRODUCTION MODE - using Anthropic API`
 
-2. Start the frontend:
+2. Start frontend:
    ```bash
    cd frontend
    npm run dev
    ```
 
-3. Test by generating a journey with any topic
+3. Open http://localhost:5173 and test with different providers
 
 ### Production Testing
 
-1. Deploy backend with API key
-2. Update frontend API URL
-3. Deploy frontend to GitHub Pages
-4. Test the live application
+1. Deploy backend with API keys
+2. Deploy frontend to hosting service
+3. Test the live application
+4. Monitor logs for any API errors
 
-## 5. Troubleshooting
+## 7. Troubleshooting
 
-### Common Issues
+### SourceCraft API Issues
 
-1. **"Failed to generate journey" error**
-   - Check if backend is running
-   - Verify API key is set correctly
-   - Check CORS configuration
+1. **"SourceCraft API key not configured"**
+   - Check `SOURCECRAFT_API_KEY` environment variable
+   - Ensure `AI_PROVIDER` is set to `sourcecraft`
 
-2. **"Invalid API Key" error**
-   - Verify the API key is correct
-   - Check if the key has sufficient permissions
-   - Ensure no extra spaces in the key
+2. **API response format errors**
+   - Check the actual response format from SourceCraft API
+   - Update `generate_with_sourcecraft()` function in `backend/main.py`
 
-3. **CORS errors in browser console**
-   - Update `allow_origins` in `backend/main.py` to include your frontend URL
+3. **CORS errors**
+   - Update `allow_origins` in `backend/main.py` to include your frontend domain
    - Or set `CORS_ORIGINS` environment variable
 
-4. **Slow response times**
-   - Anthropic API can take a few seconds to generate content
-   - Consider adding loading indicators in the UI
+### General Issues
 
-## 6. Cost Management
+1. **Backend not starting**
+   - Check Python version (3.9+ required)
+   - Verify all dependencies are installed: `pip install -r requirements.txt`
+   - Check for syntax errors in `main.py`
 
-Anthropic API usage is billed per token. To manage costs:
+2. **Frontend can't connect to backend**
+   - Verify backend is running on correct port
+   - Check CORS configuration
+   - Ensure no firewall blocking connections
 
-1. **Set usage limits** in Anthropic console
-2. **Use demo mode** for development and testing
-3. **Cache responses** (future enhancement)
-4. **Monitor usage** through Anthropic dashboard
+## 8. Cost Management
 
-## 7. Security Best Practices
+### SourceCraft API
+- Check SourceCraft pricing at their official website
+- Set usage limits if available
+- Monitor API usage through SourceCraft dashboard
 
-1. **Never expose API keys** in client-side code
+### Anthropic API
+- Billed per token
+- Set usage limits in Anthropic console
+- Use demo mode for development/testing
+
+## 9. Security Best Practices
+
+1. **Never commit API keys** to version control
 2. **Use environment variables** for all secrets
-3. **Rotate keys regularly** (every 90 days recommended)
-4. **Restrict API key permissions** if possible
+3. **Rotate API keys** regularly (every 90 days)
+4. **Restrict API key permissions** to minimum required
 5. **Use different keys** for development and production
 
-## 8. Alternative AI Providers
+## 10. Support
 
-To switch to a different AI provider (OpenAI, Gemini, etc.):
+For issues with API setup:
+- **SourceCraft API**: Consult SourceCraft documentation
+- **Anthropic API**: Check [Anthropic API docs](https://docs.anthropic.com/)
+- **General Issues**: Open an issue on [GitHub](https://github.com/gumirus/Knowledge_Journey/issues)
+- **Documentation**: See [README.md](README.md) for general setup
 
-1. Update `backend/main.py` to use the new provider's SDK
-2. Modify the prompt format accordingly
-3. Update environment variable names
-4. Adjust the response parsing
+## 11. Advanced Configuration
 
-Example for OpenAI:
-```python
-from openai import OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-```
+### Custom Prompt Engineering
 
-## Support
+To customize the AI prompt for your use case, modify the `create_prompt()` function in `backend/main.py`.
 
-For issues with API key setup:
-- Check the [Anthropic API documentation](https://docs.anthropic.com/)
-- Open an issue on [GitHub](https://github.com/gumirus/Knowledge_Journey/issues)
-- Consult the [README.md](README.md) for general setup instructions
+### Adding New Providers
+
+To add support for additional AI providers:
+
+1. Add provider to `AIProvider` enum in `backend/main.py`
+2. Implement a new generation function (e.g., `generate_with_openai()`)
+3. Add provider to frontend's `AI_PROVIDERS` array in `JourneyGenerator.tsx`
+4. Update documentation
+
+### Rate Limiting
+
+Consider implementing rate limiting for production use:
+- Use FastAPI's `SlowAPI` or similar middleware
+- Set appropriate limits based on your API plan
+- Add request queuing for high traffic

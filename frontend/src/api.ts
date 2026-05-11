@@ -14,8 +14,13 @@ const getApiBase = (): string => {
 
 const API_BASE = getApiBase();
 
-export async function generateJourney(topic: string): Promise<Journey> {
-  const request: GenerateRequest = { topic };
+export type AIProvider = 'demo' | 'anthropic' | 'sourcecraft';
+
+export async function generateJourney(topic: string, provider?: AIProvider): Promise<Journey> {
+  const request: GenerateRequest = {
+    topic,
+    ...(provider && { provider })
+  };
   
   const response = await fetch(`${API_BASE}/generate`, {
     method: 'POST',
@@ -26,7 +31,8 @@ export async function generateJourney(topic: string): Promise<Journey> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to generate journey: ${response.statusText}. Make sure the backend server is running at ${API_BASE}`);
+    const errorText = await response.text();
+    throw new Error(`Failed to generate journey: ${response.statusText}. ${errorText}`);
   }
 
   return response.json();
@@ -38,6 +44,15 @@ export async function checkBackendHealth(): Promise<boolean> {
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+export async function getBackendInfo(): Promise<{active_provider: string, status: string}> {
+  try {
+    const response = await fetch(`${API_BASE}/`);
+    return response.json();
+  } catch {
+    return { active_provider: 'unknown', status: 'offline' };
   }
 }
 
