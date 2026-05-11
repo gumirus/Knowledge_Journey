@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Checkpoint } from '../types';
 
 interface CheckpointViewProps {
   checkpoint: Checkpoint;
-  onComplete: (checkpointId: string) => void;
+  onComplete: (checkpointId: string, correct: boolean, usedHint: boolean, timeSpent: number) => void;
   isActive: boolean;
 }
 
@@ -12,21 +12,38 @@ export default function CheckpointView({ checkpoint, onComplete, isActive }: Che
   const [userAnswer, setUserAnswer] = useState('');
   const [showHint, setShowHint] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [usedHint, setUsedHint] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  // Calculate time spent so far
+  const getTimeSpent = () => {
+    return Math.max(0, checkpoint.timer - timeLeft);
+  };
+
+  const completeCheckpoint = (correct: boolean) => {
+    if (isCompleted) return;
+    setIsCompleted(true);
+    if (timerRef.current) clearInterval(timerRef.current);
+    const timeSpent = getTimeSpent();
+    setTimeout(() => onComplete(checkpoint.id, correct, usedHint, timeSpent), 500);
+  };
 
   useEffect(() => {
     if (!isActive || isCompleted || timeLeft <= 0) return;
 
-    const timer = setInterval(() => {
+    timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
+          clearInterval(timerRef.current!);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    return () => clearInterval(timer);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [isActive, isCompleted, timeLeft]);
 
   useEffect(() => {
@@ -36,30 +53,48 @@ export default function CheckpointView({ checkpoint, onComplete, isActive }: Che
   }, [timeLeft, isActive, isCompleted]);
 
   const handleTimeout = () => {
-    setIsCompleted(true);
-    setTimeout(() => onComplete(checkpoint.id), 1000);
+    completeCheckpoint(false); // Timeout = incorrect
   };
 
   const handleSubmit = () => {
-    if (checkpoint.activity.type === 'FreeResponse' || checkpoint.activity.type === 'AnalogyCraft') {
-      // For free response, any answer is accepted
-      setIsCompleted(true);
-      setTimeout(() => onComplete(checkpoint.id), 500);
-    } else if (checkpoint.activity.type === 'MultipleChoice') {
-      if (userAnswer === checkpoint.activity.correct) {
-        setIsCompleted(true);
-        setTimeout(() => onComplete(checkpoint.id), 500);
-      } else {
-        alert('Incorrect answer. Try again!');
-      }
-    } else if (checkpoint.activity.type === 'FillTheBlank') {
-      if (userAnswer.toLowerCase() === checkpoint.activity.correct.toLowerCase()) {
-        setIsCompleted(true);
-        setTimeout(() => onComplete(checkpoint.id), 500);
-      } else {
-        alert('Incorrect. Hint: ' + (checkpoint.activity.hint || 'Try again!'));
-      }
+    const activity = checkpoint.activity;
+    const answer = userAnswer.trim();
+    
+    // Types that accept any answer (no validation) - considered correct
+    const freeAnswerTypes = ['FreeResponse', 'AnalogyCraft', 'LogicBreakdown', 'TeachBack', 'MicroChallenge'];
+    if (freeAnswerTypes.includes(activity.type)) {
+      completeCheckpoint(true);
+      return;
     }
+    
+    switch (activity.type) {
+      case 'MultipleChoice':
+        if (answer === activity.correct) {
+          completeCheckpoint(true);
+        } else {
+          alert('Incorrect answer. Try again!');
+        }
+        break;
+        
+      case 'FillTheBlank':
+        if (answer.toLowerCase() === activity.correct.toLowerCase()) {
+          completeCheckpoint(true);
+        } else {
+          alert('Incorrect. Hint: ' + (activity.hint || 'Try again!'));
+        }
+        break;
+        
+      default:
+        // Should not happen
+        alert('Activity type not supported for validation');
+        break;
+    }
+  };
+
+  // Track hint usage
+  const handleShowHint = () => {
+    setShowHint(prev => !prev);
+    setUsedHint(true);
   };
 
   const formatTime = (seconds: number) => {
@@ -145,8 +180,65 @@ export default function CheckpointView({ checkpoint, onComplete, isActive }: Che
           </div>
         );
 
+      case 'LogicBreakdown':
+        return (
+          <div className="logic-breakdown">
+            <p className="prompt">{activity.prompt}</p>
+            <div className="steps">
+              {activity.steps?.map((step, idx) => (
+                <div key={idx} className="step">
+                  <span className="step-number">{idx + 1}</span>
+                  <span className="step-text">{step}</span>
+                </div>
+              ))}
+            </div>
+            <textarea
+              value={userAnswer}
+              onChange={(e) => setUserAnswer(e.target.value)}
+              placeholder="Explain the logical order or reasoning..."
+              disabled={isCompleted}
+              className="logic-textarea"
+              rows={3}
+            />
+          </div>
+        );
+
+      case 'TeachBack':
+        return (
+          <div className="teach-back">
+            <p className="prompt">{activity.prompt}</p>
+            <p className="audience">Target audience: {activity.targetAudience}</p>
+            <textarea
+              value={userAnswer}
+              onChange={(e) => setUserAnswer(e.target.value)}
+              placeholder="Explain as if you're teaching..."
+              disabled={isCompleted}
+              className="teachback-textarea"
+              rows={4}
+            />
+          </div>
+        );
+
+      case 'MicroChallenge':
+        return (
+          <div className="micro-challenge">
+            <p className="prompt">{activity.prompt}</p>
+            <div className="challenge-description">
+              <strong>Challenge:</strong> {activity.challenge}
+            </div>
+            <textarea
+              value={userAnswer}
+              onChange={(e) => setUserAnswer(e.target.value)}
+              placeholder="Describe your solution..."
+              disabled={isCompleted}
+              className="challenge-textarea"
+              rows={4}
+            />
+          </div>
+        );
+
       default:
-        return <p>Unknown activity type</p>;
+        return <p>Unknown activity type: {(activity as any).type}</p>;
     }
   };
 
@@ -155,13 +247,23 @@ export default function CheckpointView({ checkpoint, onComplete, isActive }: Che
       <div className="checkpoint-header">
         <div className="checkpoint-meta">
           <span className="checkpoint-id">Checkpoint {checkpoint.id}</span>
-          <span 
+          <span
             className="difficulty-badge"
             style={{ backgroundColor: getDifficultyColor() }}
           >
             {checkpoint.difficulty.toUpperCase()}
           </span>
           <span className="concept">{checkpoint.concept}</span>
+          {checkpoint.activity.bloomLevel && (
+            <span className="bloom-badge" title="Bloom Taxonomy Level">
+              {checkpoint.activity.bloomLevel}
+            </span>
+          )}
+          {checkpoint.activity.scenario && checkpoint.activity.scenario !== 'default' && (
+            <span className="scenario-badge" title="Learning Scenario">
+              {checkpoint.activity.scenario}
+            </span>
+          )}
         </div>
         
         <div className="timer">
@@ -179,7 +281,7 @@ export default function CheckpointView({ checkpoint, onComplete, isActive }: Che
           {checkpoint.activity.hint && (
             <button
               className="hint-button"
-              onClick={() => setShowHint(!showHint)}
+              onClick={handleShowHint}
               disabled={isCompleted}
             >
               {showHint ? 'Hide Hint' : 'Show Hint'}
